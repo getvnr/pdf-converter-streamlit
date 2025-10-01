@@ -11,7 +11,65 @@ from io import BytesIO
 import zipfile
 import base64
 
-# Page range parser (for other features)
+# Custom CSS for red-themed styling
+st.markdown("""
+    <style>
+        /* Main container */
+        .main {
+            background-color: #FFF5F5; /* Light red background */
+            padding: 20px;
+            border-radius: 10px;
+        }
+        /* Headers */
+        h1, h2, h3 {
+            color: #FF0000; /* Primary red for headers */
+            font-family: Arial, sans-serif;
+        }
+        /* Buttons */
+        .stButton > button {
+            background-color: #FF0000;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .stButton > button:hover {
+            background-color: #FF3333; /* Lighter red on hover */
+        }
+        /* Sidebar */
+        .css-1d391kg {
+            background-color: #FFE6E6; /* Light red sidebar */
+        }
+        .sidebar .sidebar-content {
+            border-right: 2px solid #FF0000;
+        }
+        /* Thumbnail borders */
+        img {
+            border: 2px solid #FF0000;
+            border-radius: 5px;
+        }
+        /* Input fields */
+        .stTextInput > div > input {
+            border: 2px solid #FF0000;
+            border-radius: 5px;
+        }
+        .stFileUploader > div > div {
+            border: 2px solid #FF0000;
+            border-radius: 5px;
+        }
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #FF0000;
+            font-size: 14px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Page range parser
 def parse_page_range(page_str, max_pages):
     pages = set()
     if not page_str:
@@ -27,11 +85,11 @@ def parse_page_range(page_str, max_pages):
                 pages.add(num - 1)
     return sorted(pages)
 
-# Helper to generate and encode thumbnails with error handling
+# Helper to generate and encode thumbnails
 def generate_thumbnails(pdf_file):
     try:
         pdf_bytes = pdf_file.read()
-        images = convert_from_bytes(pdf_bytes, size=(195, None))  # 30% larger: 150px * 1.3 = 195px
+        images = convert_from_bytes(pdf_bytes, size=(195, None))  # 195px width (150 * 1.3)
         thumbnails = []
         for img in images:
             buffered = BytesIO()
@@ -62,13 +120,12 @@ if page == "Merge PDFs":
         selected_pages = {}
         valid_files = True
         
-        # Display thumbnails and checkboxes for each PDF
         for idx, pdf_file in enumerate(uploaded_files):
             st.write(f"**File: {pdf_file.name}**")
             try:
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 num_pages = len(pdf_reader.pages)
-                pdf_file.seek(0)  # Reset file pointer for thumbnail generation
+                pdf_file.seek(0)
                 thumbnails, error = generate_thumbnails(pdf_file)
                 
                 if error:
@@ -76,7 +133,6 @@ if page == "Merge PDFs":
                     valid_files = False
                     continue
                 
-                # Create a grid of thumbnails with checkboxes
                 cols_per_row = 4
                 for i in range(0, num_pages, cols_per_row):
                     cols = st.columns(cols_per_row)
@@ -99,7 +155,7 @@ if page == "Merge PDFs":
                 merged_pdf = PyPDF2.PdfWriter()
                 for file_idx, pdf_file in enumerate(uploaded_files):
                     try:
-                        pdf_file.seek(0)  # Reset file pointer
+                        pdf_file.seek(0)
                         pdf_reader = PyPDF2.PdfReader(pdf_file)
                         for page_idx, is_selected in enumerate(selected_pages.get(file_idx, [])):
                             if is_selected:
@@ -128,7 +184,7 @@ elif page == "Split PDF":
         try:
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
             num_pages = len(pdf_reader.pages)
-            uploaded_file.seek(0)  # Reset for thumbnails
+            uploaded_file.seek(0)
             thumbnails, error = generate_thumbnails(uploaded_file)
             
             if error:
@@ -164,7 +220,7 @@ elif page == "PDF to PNG":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
             num_pages = len(pdf_reader.pages)
             pages_to_convert = parse_page_range(page_range, num_pages)
-            uploaded_file.seek(0)  # Reset for thumbnails
+            uploaded_file.seek(0)
             thumbnails, error = generate_thumbnails(uploaded_file)
             
             if error:
@@ -208,7 +264,7 @@ elif page == "PDF to Text":
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
             num_pages = len(pdf_reader.pages)
             pages_to_extract = parse_page_range(page_range, num_pages)
-            uploaded_file.seek(0)  # Reset for thumbnails
+            uploaded_file.seek(0)
             thumbnails, error = generate_thumbnails(uploaded_file)
             
             if error:
@@ -267,10 +323,13 @@ elif page == "Text to PDF":
     if st.button("Convert to PDF") and text_input:
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=letter)
-        can.drawString(72, 750, text_input[:1000])  # Simple; truncate for demo
+        can.drawString(72, 750, text_input[:1000])
         can.save()
         packet.seek(0)
         st.download_button("Download PDF", packet.getvalue(), "text-to-pdf.pdf", "application/pdf")
 
-st.sidebar.markdown("---")
-st.sidebar.info("Built with Streamlit. Deployed on Streamlit Cloud.")
+# Footer with creator and date/time
+st.markdown(
+    '<div class="footer">Created by Lakshmi Narayana Rao<br>Date: October 01, 2025, 03:03 PM IST</div>',
+    unsafe_allow_html=True
+)
