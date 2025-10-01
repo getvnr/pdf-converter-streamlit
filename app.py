@@ -74,7 +74,7 @@ if page == "Merge PDFs":
                 if error:
                     st.error(error)
                     valid_files = False
-                    continue
+                    continue  # Skip to next file instead of returning
                 
                 # Create a grid of thumbnails with checkboxes
                 cols_per_row = 4
@@ -90,6 +90,7 @@ if page == "Merge PDFs":
             except PyPDF2.errors.PdfReadError:
                 st.error(f"Error: {pdf_file.name} is encrypted or corrupted. Please upload a valid PDF.")
                 valid_files = False
+                continue  # Skip to next file
         
         if st.button("Merge Selected Pages") and valid_files:
             if not any(sum(pages) > 0 for pages in selected_pages.values()):
@@ -98,22 +99,26 @@ if page == "Merge PDFs":
                 merged_pdf = PyPDF2.PdfWriter()
                 for file_idx, pdf_file in enumerate(uploaded_files):
                     try:
+                        pdf_file.seek(0)  # Reset file pointer
                         pdf_reader = PyPDF2.PdfReader(pdf_file)
                         for page_idx, is_selected in enumerate(selected_pages.get(file_idx, [])):
                             if is_selected:
                                 merged_pdf.add_page(pdf_reader.pages[page_idx])
                     except PyPDF2.errors.PdfReadError:
                         st.error(f"Error: {pdf_file.name} could not be merged (possibly encrypted or corrupted).")
-                        return
+                        valid_files = False
                 
-                output = BytesIO()
-                merged_pdf.write(output)
-                st.download_button(
-                    "Download Merged PDF",
-                    output.getvalue(),
-                    "merged.pdf",
-                    "application/pdf"
-                )
+                if valid_files and merged_pdf.pages:
+                    output = BytesIO()
+                    merged_pdf.write(output)
+                    st.download_button(
+                        "Download Merged PDF",
+                        output.getvalue(),
+                        "merged.pdf",
+                        "application/pdf"
+                    )
+                else:
+                    st.error("No valid pages were merged. Please check your selections and files.")
 
 elif page == "Split PDF":
     st.header("Split PDF into Pages")
