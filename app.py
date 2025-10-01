@@ -31,7 +31,7 @@ def parse_page_range(page_str, max_pages):
 def generate_thumbnails(pdf_file):
     try:
         pdf_bytes = pdf_file.read()
-        images = convert_from_bytes(pdf_bytes, size=(150, None))  # Medium-sized: 150px width
+        images = convert_from_bytes(pdf_bytes, size=(195, None))  # 30% larger: 150px * 1.3 = 195px
         thumbnails = []
         for img in images:
             buffered = BytesIO()
@@ -74,7 +74,7 @@ if page == "Merge PDFs":
                 if error:
                     st.error(error)
                     valid_files = False
-                    continue  # Skip to next file instead of returning
+                    continue
                 
                 # Create a grid of thumbnails with checkboxes
                 cols_per_row = 4
@@ -90,7 +90,7 @@ if page == "Merge PDFs":
             except PyPDF2.errors.PdfReadError:
                 st.error(f"Error: {pdf_file.name} is encrypted or corrupted. Please upload a valid PDF.")
                 valid_files = False
-                continue  # Skip to next file
+                continue
         
         if st.button("Merge Selected Pages") and valid_files:
             if not any(sum(pages) > 0 for pages in selected_pages.values()):
@@ -124,15 +124,33 @@ elif page == "Split PDF":
     st.header("Split PDF into Pages")
     uploaded_file = st.file_uploader("Upload PDF", type="pdf")
     
-    if st.button("Split") and uploaded_file:
+    if uploaded_file:
         try:
             pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for i, page in enumerate(pdf_reader.pages):
-                split_pdf = PyPDF2.PdfWriter()
-                split_pdf.add_page(page)
-                output = BytesIO()
-                split_pdf.write(output)
-                st.download_button(f"Download Page {i+1}", output.getvalue(), f"page-{i+1}.pdf", "application/pdf")
+            num_pages = len(pdf_reader.pages)
+            uploaded_file.seek(0)  # Reset for thumbnails
+            thumbnails, error = generate_thumbnails(uploaded_file)
+            
+            if error:
+                st.error(error)
+            else:
+                st.subheader("Page Previews")
+                cols_per_row = 4
+                for i in range(0, num_pages, cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j in range(cols_per_row):
+                        page_idx = i + j
+                        if page_idx < num_pages:
+                            with cols[j]:
+                                st.image(f"data:image/png;base64,{thumbnails[page_idx]}", caption=f"Page {page_idx + 1}")
+            
+            if st.button("Split"):
+                for i, page in enumerate(pdf_reader.pages):
+                    split_pdf = PyPDF2.PdfWriter()
+                    split_pdf.add_page(page)
+                    output = BytesIO()
+                    split_pdf.write(output)
+                    st.download_button(f"Download Page {i+1}", output.getvalue(), f"page-{i+1}.pdf", "application/pdf")
         except PyPDF2.errors.PdfReadError:
             st.error("Error: The uploaded PDF is encrypted or corrupted. Please upload a valid PDF.")
 
@@ -141,20 +159,40 @@ elif page == "PDF to PNG":
     uploaded_file = st.file_uploader("Upload PDF", type="pdf")
     page_range = st.text_input("Page range (e.g., 1-3,5)", placeholder="All pages")
     
-    if st.button("Convert to PNG") and uploaded_file:
+    if uploaded_file:
         try:
-            pdf_bytes = uploaded_file.read()
-            pages_to_convert = parse_page_range(page_range, len(PyPDF2.PdfReader(BytesIO(pdf_bytes)).pages))
-            images = convert_from_bytes(pdf_bytes, first_page=min(pages_to_convert)+1, last_page=max(pages_to_convert)+1)
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            num_pages = len(pdf_reader.pages)
+            pages_to_convert = parse_page_range(page_range, num_pages)
+            uploaded_file.seek(0)  # Reset for thumbnails
+            thumbnails, error = generate_thumbnails(uploaded_file)
             
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
-                for idx, img in enumerate(images):
-                    img_buffer = BytesIO()
-                    img.save(img_buffer, format='PNG')
-                    zip_file.writestr(f"page-{pages_to_convert[idx]+1}.png", img_buffer.getvalue())
+            if error:
+                st.error(error)
+            else:
+                st.subheader("Selected Page Previews")
+                cols_per_row = 4
+                for i in range(0, len(pages_to_convert), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j in range(cols_per_row):
+                        page_idx = i + j
+                        if page_idx < len(pages_to_convert):
+                            with cols[j]:
+                                st.image(f"data:image/png;base64,{thumbnails[pages_to_convert[page_idx]]}", 
+                                         caption=f"Page {pages_to_convert[page_idx] + 1}")
             
-            st.download_button("Download ZIP of PNGs", zip_buffer.getvalue(), "pdf-to-png.zip", "application/zip")
+            if st.button("Convert to PNG"):
+                pdf_bytes = uploaded_file.read()
+                images = convert_from_bytes(pdf_bytes, first_page=min(pages_to_convert)+1, last_page=max(pages_to_convert)+1)
+                
+                zip_buffer = BytesIO()
+                with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+                    for idx, img in enumerate(images):
+                        img_buffer = BytesIO()
+                        img.save(img_buffer, format='PNG')
+                        zip_file.writestr(f"page-{pages_to_convert[idx]+1}.png", img_buffer.getvalue())
+                
+                st.download_button("Download ZIP of PNGs", zip_buffer.getvalue(), "pdf-to-png.zip", "application/zip")
         except (PDFPageCountError, PDFSyntaxError) as e:
             st.error(f"Error converting PDF to PNG: {str(e)}. The PDF may be corrupted or invalid.")
         except PyPDF2.errors.PdfReadError:
@@ -165,17 +203,39 @@ elif page == "PDF to Text":
     uploaded_file = st.file_uploader("Upload PDF", type="pdf")
     page_range = st.text_input("Page range (e.g., 1-3,5)", placeholder="All pages")
     
-    if st.button("Extract Text") and uploaded_file:
+    if uploaded_file:
         try:
-            with pdfplumber.open(uploaded_file) as pdf:
-                pages_to_extract = parse_page_range(page_range, len(pdf.pages))
-                full_text = ""
-                for page_num in pages_to_extract:
-                    page = pdf.pages[page_num]
-                    full_text += f"--- Page {page_num + 1} ---\n{page.extract_text()}\n\n"
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            num_pages = len(pdf_reader.pages)
+            pages_to_extract = parse_page_range(page_range, num_pages)
+            uploaded_file.seek(0)  # Reset for thumbnails
+            thumbnails, error = generate_thumbnails(uploaded_file)
             
-            st.download_button("Download Text File", full_text, "extracted-text.txt", "text/plain")
-            st.text_area("Preview", full_text, height=200)
+            if error:
+                st.error(error)
+            else:
+                st.subheader("Selected Page Previews")
+                cols_per_row = 4
+                for i in range(0, len(pages_to_extract), cols_per_row):
+                    cols = st.columns(cols_per_row)
+                    for j in range(cols_per_row):
+                        page_idx = i + j
+                        if page_idx < len(pages_to_extract):
+                            with cols[j]:
+                                st.image(f"data:image/png;base64,{thumbnails[pages_to_extract[page_idx]]}", 
+                                         caption=f"Page {pages_to_extract[page_idx] + 1}")
+            
+            if st.button("Extract Text"):
+                with pdfplumber.open(uploaded_file) as pdf:
+                    full_text = ""
+                    for page_num in pages_to_extract:
+                        page = pdf.pages[page_num]
+                        full_text += f"--- Page {page_num + 1} ---\n{page.extract_text()}\n\n"
+                
+                st.download_button("Download Text File", full_text, "extracted-text.txt", "text/plain")
+                st.text_area("Preview", full_text, height=200)
+        except PyPDF2.errors.PdfReadError:
+            st.error("Error: The uploaded PDF is encrypted or corrupted. Please upload a valid PDF.")
         except Exception as e:
             st.error(f"Error extracting text: {str(e)}. The PDF may be corrupted or encrypted.")
 
