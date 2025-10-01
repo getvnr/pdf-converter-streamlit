@@ -5,13 +5,12 @@ from pdf2image import convert_from_bytes
 from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.pdfbase import pdfutils
 from reportlab.lib.utils import ImageReader
 from io import BytesIO
 import zipfile
-import os
+import base64
 
-# Page range parser (adapted from your JS)
+# Page range parser (for other features)
 def parse_page_range(page_str, max_pages):
     pages = set()
     if not page_str:
@@ -20,12 +19,24 @@ def parse_page_range(page_str, max_pages):
         if '-' in part:
             start, end = map(int, part.split('-'))
             for i in range(max(start, 1), min(end, max_pages) + 1):
-                pages.add(i - 1)  # 0-based for PyPDF2
+                pages.add(i - 1)
         else:
             num = int(part)
             if 1 <= num <= max_pages:
                 pages.add(num - 1)
     return sorted(pages)
+
+# Helper to generate and encode thumbnails
+def generate_thumbnails(pdf_file):
+    pdf_bytes = pdf_file.read()
+    images = convert_from_bytes(pdf_bytes, size=(150, None))  # Medium-sized: 150px width
+    thumbnails = []
+    for img in images:
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        thumbnails.append(img_str)
+    return thumbnails
 
 # Sidebar for navigation
 st.sidebar.title("PDF Converter")
@@ -35,21 +46,51 @@ page = st.sidebar.selectbox("Choose a tool:", [
 ])
 
 if page == "Merge PDFs":
-    st.header("Merge PDFs (with optional page range)")
+    st.header("Merge PDFs with Page Selection")
     uploaded_files = st.file_uploader("Upload PDFs", accept_multiple_files=True, type="pdf")
-    page_range = st.text_input("Page range (e.g., 1-3,5)", placeholder="All pages")
     
-    if st.button("Merge") and len(uploaded_files) >= 2:
-        merged_pdf = PyPDF2.PdfWriter()
-        for pdf_file in uploaded_files:
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            pages_to_copy = parse_page_range(page_range, len(pdf_reader.pages))
-            for page_num in pages_to_copy:
-                merged_pdf.add_page(pdf_reader.pages[page_num])
+    if uploaded_files:
+        st.subheader("Select Pages to Merge")
+        selected_pages = {}
         
-        output = BytesIO()
-        merged_pdf.write(output)
-        st.download_button("Download Merged PDF", output.getvalue(), "merged.pdf", "application/pdf")
+        # Display thumbnails and checkboxes for each PDF
+        for idx, pdf_file in enumerate(uploaded_files):
+            st.write(f"**File: {pdf_file.name}**")
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            num_pages = len(pdf_reader.pages)
+            thumbnails = generate_thumbnails(pdf_file)
+            
+            # Create a grid of thumbnails with checkboxes
+            cols_per_row = 4
+            for i in range(0, num_pages, cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j in range(cols_per_row):
+                    page_idx = i + j
+                    if page_idx < num_pages:
+                        with cols[j]:
+                            st.image(f"data:image/png;base64,{thumbnails[page_idx]}", caption=f"Page {page_idx + 1}")
+                            is_selected = st.checkbox(f"Include Page {page_idx + 1}", key=f"page_{idx}_{page_idx}")
+                            selected_pages.setdefault(idx, []).append(is_selected)
+        
+        if st.button("Merge Selected Pages"):
+            if not any(sum(pages) > 0 for pages in selected_pages.values()):
+                st.error("Please select at least one page to merge!")
+            else:
+                merged_pdf = PyPDF2.PdfWriter()
+                for file_idx, pdf_file in enumerate(uploaded_files):
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    for page_idx, is_selected in enumerate(selected_pages.get(file_idx, [])):
+                        if is_selected:
+                            merged_pdf.add_page(pdf_reader.pages[page_idx])
+                
+                output = BytesIO()
+                merged_pdf.write(output)
+                st.download_button(
+                    "Download Merged PDF",
+                    output.getvalue(),
+                    "merged.pdf",
+                    "application/pdf"
+                )
 
 elif page == "Split PDF":
     st.header("Split PDF into Pages")
@@ -124,7 +165,7 @@ elif page == "Text to PDF":
     if st.button("Convert to PDF") and text_input:
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=letter)
-        can.drawString(72, 750, text_input[:1000])  # Simple; truncate for demo (extend for multi-page)
+        can.drawString(72, 750, text_input[:1000])  # Simple; truncate for demo
         can.save()
         packet.seek(0)
         st.download_button("Download PDF", packet.getvalue(), "text-to-pdf.pdf", "application/pdf")
